@@ -6,39 +6,33 @@ import com.google.api.services.sheets.v4.Sheets;
 import com.google.api.services.sheets.v4.model.AppendValuesResponse;
 import com.google.api.services.sheets.v4.model.ValueRange;
 import com.google.auth.http.HttpCredentialsAdapter;
+import com.google.auth.oauth2.GoogleCredentials;
 import com.omega.wedding.rsvp.dto.GuestRsvpRequest;
 import org.springframework.beans.factory.annotation.Value;
-import com.google.auth.oauth2.GoogleCredentials;
 import org.springframework.stereotype.Service;
 
-import java.io.FileInputStream;
-import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 @Service
 public class GoogleSheetsService {
+
     @Value("${google.sheets.spreadsheet-id}")
     private String spreadsheetId;
 
-    @Value("${google.sheets.credentials-path}")
-    private String credentialsPath;
-
     private static final String APPLICATION_NAME = "Wedding RSVP";
-    private static final String RANGE = "Sheet1!A:E"; // Adjust based on your sheet structure
+    private static final String RANGE = "Sheet1!A:D";
 
     public void appendRsvp(GuestRsvpRequest request) throws Exception {
         Sheets service = getSheetsService();
 
-        // Check if email already exists
         if (emailExists(service, request.email())) {
             throw new RuntimeException("RSVP already submitted with this email");
         }
 
-        // Prepare the row data
         List<Object> row = Arrays.asList(
                 LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
                 request.fullName(),
@@ -54,7 +48,8 @@ public class GoogleSheetsService {
                 .setValueInputOption("RAW")
                 .execute();
 
-        System.out.printf("%d cells appended.%n", result.getUpdates().getUpdatedCells());
+        System.out.printf("%d cells appended.%n",
+                result.getUpdates().getUpdatedCells());
     }
 
     public List<List<Object>> getAllRsvps() throws Exception {
@@ -67,31 +62,47 @@ public class GoogleSheetsService {
         return response.getValues();
     }
 
-    private boolean emailExists(Sheets service, String email) throws IOException, IOException {
+    private boolean emailExists(Sheets service, String email) throws Exception {
         ValueRange response = service.spreadsheets().values()
                 .get(spreadsheetId, RANGE)
                 .execute();
 
         List<List<Object>> values = response.getValues();
-        if (values == null || values.isEmpty()) {
+        if (values == null || values.size() <= 1) {
             return false;
         }
 
-        // Skip header row (index 0) and check email column (index 2)
         return values.stream()
-                .skip(1)
-                .anyMatch(row -> row.size() > 2 && row.get(2).toString().equalsIgnoreCase(email));
+                .skip(1) // skip header
+                .anyMatch(row ->
+                        row.size() > 2 &&
+                                row.get(2).toString().equalsIgnoreCase(email)
+                );
     }
 
     private Sheets getSheetsService() throws Exception {
+
+        String credentialsJson =
+                System.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+
+        if (credentialsJson == null || credentialsJson.isBlank()) {
+            throw new IllegalStateException(
+                    "Missing GOOGLE_APPLICATION_CREDENTIALS_JSON env variable"
+            );
+        }
+
         GoogleCredentials credentials = GoogleCredentials
-                .fromStream(new FileInputStream(credentialsPath))
-                .createScoped(Collections.singletonList("https://www.googleapis.com/auth/spreadsheets"));
+                .fromStream(new ByteArrayInputStream(
+                        credentialsJson.getBytes(StandardCharsets.UTF_8)))
+                .createScoped(
+                        List.of("https://www.googleapis.com/auth/spreadsheets")
+                );
 
         return new Sheets.Builder(
                 GoogleNetHttpTransport.newTrustedTransport(),
                 GsonFactory.getDefaultInstance(),
-                new HttpCredentialsAdapter(credentials))
+                new HttpCredentialsAdapter(credentials)
+        )
                 .setApplicationName(APPLICATION_NAME)
                 .build();
     }
