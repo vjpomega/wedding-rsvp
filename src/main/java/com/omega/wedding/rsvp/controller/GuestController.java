@@ -7,6 +7,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+
 
 @RestController
 @RequestMapping("/api/rsvp")
@@ -31,5 +33,10 @@ public class GuestController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to submit RSVP: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/refresh")
+    public ResponseEntity<String> refresh() {
+        return ResponseEntity.ok("Service is awake ✅ " + Instant.now());
     }
 }
